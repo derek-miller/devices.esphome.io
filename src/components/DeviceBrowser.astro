@@ -56,13 +56,17 @@ const facetGroups = FACET_DEFINITIONS.map((definition) => {
   return { ...definition, values };
 }).filter((group) => group.values.length > 0);
 
-/** " type:plug board:esp8266 " — matched with a delimited substring test. */
+/**
+ * "|type:plug|brand:Martin Jerry|board:esp8266|" — matched with a delimited
+ * substring test. Pipe-delimited rather than space-delimited because brand
+ * names have spaces in them.
+ */
 function facetAttribute(card: DeviceCard): string {
   const parts: string[] = [];
   for (const [facet, values] of Object.entries(card.facets)) {
-    for (const value of values) parts.push(`${facet}:${value}`);
+    for (const value of values) parts.push(`${facet}:${value.replace(/\|/g, "/")}`);
   }
-  return ` ${parts.join(" ")} `;
+  return `|${parts.join("|")}|`;
 }
 
 const totalLabel = devices.length === 1 ? "device" : "devices";
@@ -329,7 +333,7 @@ const totalLabel = devices.length === 1 ? "device" : "devices";
       // Within a facet the values are alternatives (OR); across facets every
       // group has to match (AND) — the behaviour people expect from facets.
       for (const [facet, values] of filters) {
-        if (!values.some((value) => card.facets.includes(` ${facet}:${value} `))) {
+        if (!values.some((value) => card.facets.includes(`|${facet}:${value}|`))) {
           return false;
         }
       }
@@ -350,7 +354,7 @@ const totalLabel = devices.length === 1 ? "device" : "devices";
         else if (card.title.startsWith(term)) best = 90;
         else if (card.title.includes(` ${term}`)) best = 70;
         else if (card.title.includes(term)) best = 45;
-        else if (card.facets.includes(`:${term} `)) best = 30;
+        else if (card.facets.includes(`:${term}|`)) best = 30;
         else if (card.facets.includes(term)) best = 20;
         else if (body.includes(` ${term} `)) best = 12;
         else if (body.startsWith(`${term} `)) best = 12;
@@ -373,11 +377,11 @@ const totalLabel = devices.length === 1 ? "device" : "devices";
         for (const card of cards) {
           if (!matchesFilters(card, others)) continue;
           if (query.length > 0 && scoreCard(card, query) === 0) continue;
-          const pattern = ` ${facet}:`;
+          const pattern = `|${facet}:`;
           let index = card.facets.indexOf(pattern);
           while (index !== -1) {
             const start = index + pattern.length;
-            const end = card.facets.indexOf(" ", start);
+            const end = card.facets.indexOf("|", start);
             const value = card.facets.slice(start, end);
             tally.set(value, (tally.get(value) ?? 0) + 1);
             index = card.facets.indexOf(pattern, end);
