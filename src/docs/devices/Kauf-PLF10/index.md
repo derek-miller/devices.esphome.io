@@ -21,6 +21,10 @@ On the PLF10 the outlet is centred, with the LED to the left of the plug and the
 [PLF12](/devices/kauf-plf12/) uses a different board and a different power monitoring chip; firmware is not
 interchangeable between the two.
 
+## Product Image
+
+![KAUF PLF10 smart plug](kauf-plf10.jpg "KAUF PLF10 smart plug")
+
 ## GPIO Pinout
 
 | Pin    | Function                     |

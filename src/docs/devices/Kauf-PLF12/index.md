@@ -22,6 +22,10 @@ The PLF12 has its plug on the left and the button on the right, with the LEDs in
 different board from the PLF10 — different pinout, different power monitoring chip — and firmware is not
 interchangeable between the two.
 
+## Product Image
+
+![KAUF PLF12 smart plug](kauf-plf12.jpg "KAUF PLF12 smart plug")
+
 ## GPIO Pinout
 
 | Pin    | Function                              |
