@@ -1,0 +1,515 @@
+/* Faceted device browser (src/components/DeviceBrowser.astro). */
+
+.deviceBrowser {
+  --db-gap: 1rem;
+  --db-radius: 0.5rem;
+  --db-border: 1px solid var(--sl-color-gray-5);
+  margin-top: 0.5rem;
+}
+
+/*
+ * The class rules below set `display` on elements the script hides with the
+ * `hidden` attribute, and a class beats the user agent's [hidden] rule. Say
+ * it once here rather than guarding every rule.
+ */
+.deviceBrowser [hidden] {
+  display: none !important;
+}
+
+/* ---------------------------------------------------------------- toolbar */
+
+.db-searchLabel {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.db-searchField {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.15rem 0.6rem;
+  border: var(--db-border);
+  border-radius: var(--db-radius);
+  background-color: var(--sl-color-black);
+}
+
+.db-searchField:focus-within {
+  border-color: var(--sl-color-text-accent);
+  box-shadow: 0 0 0 1px var(--sl-color-text-accent);
+}
+
+.db-searchIcon {
+  flex: none;
+  width: 1.15rem;
+  height: 1.15rem;
+  color: var(--sl-color-gray-3);
+}
+
+.db-search {
+  flex: 1;
+  min-width: 0;
+  padding: 0.5rem 0;
+  border: 0;
+  background: transparent;
+  color: var(--sl-color-white);
+  font: inherit;
+  font-size: 1rem;
+}
+
+.db-search:focus {
+  outline: none;
+}
+
+.db-search::-webkit-search-cancel-button {
+  display: none;
+}
+
+.db-clearSearch,
+.db-reset,
+.db-showMore {
+  padding: 0.2rem 0.45rem;
+  border: 0;
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--sl-color-text-accent);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.db-clearSearch:hover,
+.db-reset:hover,
+.db-showMore:hover {
+  background-color: var(--sl-color-gray-6);
+}
+
+.db-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.db-count {
+  margin: 0;
+  font-size: 0.9375rem;
+  color: var(--sl-color-gray-2);
+}
+
+.db-controlGroup {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.db-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+  color: var(--sl-color-gray-3);
+}
+
+.db-select select {
+  padding: 0.3rem 0.5rem;
+  border: var(--db-border);
+  border-radius: 0.375rem;
+  background-color: var(--sl-color-black);
+  color: var(--sl-color-white);
+  font: inherit;
+  font-size: 0.8125rem;
+}
+
+.db-viewToggle {
+  display: inline-flex;
+  border: var(--db-border);
+  border-radius: 0.375rem;
+  overflow: hidden;
+}
+
+.db-viewButton {
+  padding: 0.35rem 0.7rem;
+  border: 0;
+  background-color: transparent;
+  color: var(--sl-color-text);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.db-viewButton + .db-viewButton {
+  border-left: var(--db-border);
+}
+
+.db-viewButton:hover {
+  background-color: var(--sl-color-gray-6);
+}
+
+.db-viewButton.is-active {
+  background-color: var(--sl-color-text-accent);
+  color: var(--sl-color-text-invert);
+}
+
+/* The filter drawer button only exists on narrow screens. */
+.db-filterToggle {
+  display: none;
+  padding: 0.35rem 0.7rem;
+  border: var(--db-border);
+  border-radius: 0.375rem;
+  background-color: transparent;
+  color: var(--sl-color-text);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.db-activeFilters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+}
+
+.db-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid var(--sl-color-text-accent);
+  border-radius: 1rem;
+  background-color: var(--sl-color-accent-low);
+  color: var(--sl-color-text-accent);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.db-chip::after {
+  content: "×";
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.db-chip:hover {
+  background-color: var(--sl-color-text-accent);
+  color: var(--sl-color-text-invert);
+}
+
+/* ----------------------------------------------------------------- layout */
+
+.db-layout {
+  display: grid;
+  grid-template-columns: 15rem minmax(0, 1fr);
+  gap: 1.5rem;
+  margin-top: 1.25rem;
+}
+
+/* ----------------------------------------------------------------- facets */
+
+.db-facetsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.db-facetsHeader h2 {
+  margin: 0;
+  font-size: 1rem;
+  border: 0;
+}
+
+.db-scopeNote {
+  margin: 0 0 0.75rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--sl-color-gray-3);
+}
+
+.db-facet {
+  border-bottom: var(--db-border);
+  padding: 0.5rem 0;
+}
+
+.db-facet > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.db-facet > summary::marker {
+  color: var(--sl-color-gray-3);
+}
+
+.db-facetBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.3rem;
+  border-radius: 0.75rem;
+  background-color: var(--sl-color-text-accent);
+  color: var(--sl-color-text-invert);
+  font-size: 0.6875rem;
+}
+
+.db-facetSearch {
+  width: 100%;
+  margin: 0.4rem 0;
+  padding: 0.3rem 0.5rem;
+  border: var(--db-border);
+  border-radius: 0.375rem;
+  background-color: var(--sl-color-black);
+  color: var(--sl-color-white);
+  font: inherit;
+  font-size: 0.8125rem;
+}
+
+.db-facetValues {
+  margin: 0.25rem 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 18rem;
+  overflow-y: auto;
+}
+
+.db-facetValue label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  padding: 0.2rem 0;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+.db-facetValue input {
+  flex: none;
+  accent-color: var(--sl-color-text-accent);
+  cursor: pointer;
+}
+
+.db-facetName {
+  flex: 1;
+  min-width: 0;
+}
+
+.db-facetCount {
+  flex: none;
+  color: var(--sl-color-gray-3);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.db-facetValue.is-empty {
+  opacity: 0.35;
+}
+
+.db-facetValue.is-empty label {
+  cursor: default;
+}
+
+/* ---------------------------------------------------------------- results */
+
+.db-cards {
+  display: grid;
+  gap: var(--db-gap);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+}
+
+.db-cards[data-view="list"] {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
+.db-card {
+  margin: 0;
+}
+
+.db-cardLink {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border: var(--db-border);
+  border-radius: var(--db-radius);
+  overflow: hidden;
+  color: inherit;
+  text-decoration: none;
+  background-color: var(--sl-color-black);
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.db-cardLink:hover {
+  border-color: var(--sl-color-text-accent);
+  transform: translateY(-2px);
+}
+
+.db-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 4 / 3;
+  background-color: var(--sl-color-gray-6);
+  overflow: hidden;
+}
+
+.db-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.db-thumbFallback {
+  width: 2rem;
+  height: 2rem;
+  color: var(--sl-color-gray-4);
+}
+
+.db-cards[data-view="list"] .db-thumbFallback {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.db-cardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.6rem 0.7rem 0.7rem;
+}
+
+.db-cardTitle {
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--sl-color-white);
+}
+
+.db-cardLink:hover .db-cardTitle {
+  color: var(--sl-color-text-accent);
+}
+
+.db-cardTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.db-tag {
+  display: inline-block;
+  padding: 0.1rem 0.35rem;
+  border: var(--db-border);
+  border-radius: 0.25rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+  color: var(--sl-color-gray-2);
+}
+
+.db-tag--type {
+  border-color: var(--sl-color-text-accent);
+  color: var(--sl-color-text-accent);
+}
+
+.db-tag--muted {
+  color: var(--sl-color-gray-3);
+}
+
+.db-tag--accent {
+  background-color: var(--sl-color-accent-low);
+  border-color: var(--sl-color-accent);
+  color: var(--sl-color-text-accent);
+}
+
+/* List view: one row per device, thumbnail shrunk to an icon. */
+.db-cards[data-view="list"] .db-cardLink {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.75rem;
+  border: 0;
+  border-bottom: var(--db-border);
+  border-radius: 0;
+  padding: 0.5rem 0.25rem;
+  transform: none;
+}
+
+.db-cards[data-view="list"] .db-cardLink:hover {
+  background-color: var(--sl-color-gray-6);
+}
+
+.db-cards[data-view="list"] .db-thumb {
+  flex: none;
+  width: 3rem;
+  aspect-ratio: 1;
+  border-radius: 0.375rem;
+}
+
+.db-cards[data-view="list"] .db-cardBody {
+  flex: 1;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  padding: 0;
+}
+
+.db-cards[data-view="list"] .db-cardTitle {
+  font-size: 1rem;
+}
+
+.db-empty {
+  margin: 2rem 0;
+  text-align: center;
+  color: var(--sl-color-gray-3);
+}
+
+/* ------------------------------------------------------------ small print */
+
+@media (max-width: 60rem) {
+  .db-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .db-filterToggle {
+    display: inline-block;
+  }
+
+  /* Without JS the facets stay visible; the toggle only exists with it. */
+  .deviceBrowser.is-interactive .db-facets {
+    display: none;
+  }
+
+  .deviceBrowser.is-interactive .db-facets.is-open {
+    display: block;
+  }
+}
+
+/*
+ * A catalog needs more room than prose. Starlight sizes the content column
+ * from --sl-content-width (55rem here, set in custom.css), which leaves the
+ * facet rail and the card grid fighting over ~40rem.
+ */
+.content-panel:has(.deviceBrowser) {
+  --sl-content-width: 78rem;
+}

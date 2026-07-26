@@ -1,0 +1,617 @@
+---
+/**
+ * Faceted, full-text device browser.
+ *
+ * Every card in scope is rendered server-side with its facet values on a data
+ * attribute, so the page is complete without JavaScript and the client only
+ * has to show and hide what is already there — no cards payload to fetch, no
+ * flash of re-rendered content. The one thing it does fetch is the full-text
+ * token bag (/device-search-text.json), and only once someone reaches for the
+ * search box.
+ *
+ * `scopeIds` narrows the catalog to one listing page's devices; leaving it
+ * out browses everything.
+ */
+import { getDeviceIndex, type DeviceCard } from "../utils/deviceIndex";
+import { FACET_DEFINITIONS, facetValueLabel } from "../utils/deviceFacets";
+
+interface Props {
+  scopeIds?: string[] | null;
+  emptyMessage?: string;
+}
+
+const { scopeIds = null, emptyMessage = "No devices found." } = Astro.props;
+
+const { cards } = await getDeviceIndex();
+const scope = scopeIds ? new Set(scopeIds) : null;
+const devices: DeviceCard[] = scope
+  ? cards.filter((card) => scope.has(card.id))
+  : cards;
+const isScoped = devices.length < cards.length;
+
+// Facet counts over exactly what this page shows. The client recomputes these
+// as filters are applied.
+const counts: Record<string, Record<string, number>> = {};
+for (const card of devices) {
+  for (const [facet, values] of Object.entries(card.facets)) {
+    const bucket = (counts[facet] ??= {});
+    for (const value of values) bucket[value] = (bucket[value] ?? 0) + 1;
+  }
+}
+
+const facetGroups = FACET_DEFINITIONS.map((definition) => {
+  const values = Object.entries(counts[definition.id] ?? {})
+    .map(([value, count]) => ({
+      value,
+      count,
+      label: facetValueLabel(definition.id, value),
+    }))
+    // Commonest first, ties alphabetical — except difficulty, which is a
+    // scale and reads wrong in any order but its own.
+    .sort((a, b) =>
+      definition.id === "difficulty"
+        ? a.value.localeCompare(b.value)
+        : b.count - a.count || a.label.localeCompare(b.label)
+    );
+  return { ...definition, values };
+}).filter((group) => group.values.length > 0);
+
+/** " type:plug board:esp8266 " — matched with a delimited substring test. */
+function facetAttribute(card: DeviceCard): string {
+  const parts: string[] = [];
+  for (const [facet, values] of Object.entries(card.facets)) {
+    for (const value of values) parts.push(`${facet}:${value}`);
+  }
+  return ` ${parts.join(" ")} `;
+}
+
+const totalLabel = devices.length === 1 ? "device" : "devices";
+---
+
+<!--
+  Kept out of Starlight's own site search: every device already has its own
+  indexed page, and letting a 774-card catalog match every query would bury
+  them.
+-->
+<div class="deviceBrowser not-content" data-pagefind-ignore data-device-browser>
+  <div class="db-toolbar">
+    <div class="db-searchRow">
+      <label class="db-searchLabel" for="db-search">Search devices</label>
+      <div class="db-searchField">
+        <svg class="db-searchIcon" viewBox="0 0 20 20" aria-hidden="true">
+          <path
+            fill="currentColor"
+            d="M8.5 3a5.5 5.5 0 0 1 4.38 8.83l3.15 3.14a1 1 0 0 1-1.42 1.42l-3.14-3.15A5.5 5.5 0 1 1 8.5 3Zm0 2a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"
+          ></path>
+        </svg>
+        <input
+          type="search"
+          id="db-search"
+          class="db-search"
+          placeholder="Name, chip, GPIO pin, component — e.g. bl0937, GPIO12, cb3s"
+          autocomplete="off"
+          spellcheck="false"
+          data-db-search
+        />
+        <button type="button" class="db-clearSearch" data-db-clear-search hidden>
+          Clear
+        </button>
+      </div>
+    </div>
+
+    <div class="db-controls">
+      <p class="db-count" data-db-count aria-live="polite">
+        <strong>{devices.length}</strong> {totalLabel}
+      </p>
+      <div class="db-controlGroup">
+        <button type="button" class="db-filterToggle" data-db-filter-toggle aria-expanded="false">
+          Filters
+        </button>
+        <label class="db-select">
+          <span>Sort</span>
+          <select data-db-sort>
+            <option value="relevance" data-db-relevance hidden>Best match</option>
+            <option value="title">Title (A–Z)</option>
+            <option value="date">Newest first</option>
+          </select>
+        </label>
+        <div class="db-viewToggle" role="group" aria-label="View">
+          <button type="button" class="db-viewButton is-active" data-db-view="grid">
+            Grid
+          </button>
+          <button type="button" class="db-viewButton" data-db-view="list">
+            List
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="db-activeFilters" data-db-active hidden></div>
+  </div>
+
+  <div class="db-layout">
+    <aside class="db-facets" data-db-facets>
+      <div class="db-facetsHeader">
+        <h2>Filters</h2>
+        <button type="button" class="db-reset" data-db-reset hidden>Clear all</button>
+      </div>
+
+      {isScoped && (
+        <p class="db-scopeNote">
+          Filtering within this page&rsquo;s devices.{" "}
+          <a href="/browse">Search all {cards.length}</a>
+        </p>
+      )}
+
+      {facetGroups.map((group) => (
+        <details class="db-facet" open={!group.collapsed} data-db-facet={group.id}>
+          <summary>
+            <span>{group.label}</span>
+            <span class="db-facetBadge" data-db-facet-badge hidden></span>
+          </summary>
+          {group.searchable && group.values.length > 8 && (
+            <input
+              type="search"
+              class="db-facetSearch"
+              placeholder={`Filter ${group.label.toLowerCase()}`}
+              autocomplete="off"
+              data-db-facet-search
+            />
+          )}
+          <ul class="db-facetValues" data-db-overflow={group.values.length > 10 ? "" : null}>
+            {group.values.map((entry, index) => (
+              <li
+                class="db-facetValue"
+                data-db-value={entry.value}
+                data-db-extra={index >= 10 ? "" : null}
+                hidden={index >= 10 || null}
+              >
+                <label>
+                  <input
+                    type="checkbox"
+                    data-db-checkbox
+                    data-facet={group.id}
+                    value={entry.value}
+                  />
+                  <span class="db-facetName">{entry.label}</span>
+                  <span class="db-facetCount" data-db-value-count>{entry.count}</span>
+                </label>
+              </li>
+            ))}
+          </ul>
+          {group.values.length > 10 && (
+            <button type="button" class="db-showMore" data-db-show-more>
+              Show all {group.values.length}
+            </button>
+          )}
+        </details>
+      ))}
+    </aside>
+
+    <div class="db-results">
+      <ul class="db-cards" data-db-cards data-view="grid">
+        {devices.map((card) => (
+          <li
+            class="db-card"
+            data-db-device={card.id}
+            data-facets={facetAttribute(card)}
+            data-title={card.title.toLowerCase()}
+            data-date={card.date ?? ""}
+          >
+            <a href={card.path} class="db-cardLink">
+              <span class="db-thumb">
+                {card.thumb ? (
+                  <img
+                    src={card.thumb.src}
+                    width={card.thumb.width}
+                    height={card.thumb.height}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                  />
+                ) : (
+                  <svg class="db-thumbFallback" viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      fill="currentColor"
+                      d="M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm0 2v9.6l3.5-3.5 3 3L15 11l4 4V6H5Zm3.5 1a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Z"
+                    ></path>
+                  </svg>
+                )}
+              </span>
+              <span class="db-cardBody">
+                <span class="db-cardTitle">{card.title}</span>
+                <span class="db-cardTags">
+                  {card.facets.type.map((value) => (
+                    <span class="db-tag db-tag--type">
+                      {facetValueLabel("type", value)}
+                    </span>
+                  ))}
+                  {card.facets.board.map((value) => (
+                    <span class="db-tag">{facetValueLabel("board", value)}</span>
+                  ))}
+                  {card.facets.standard.map((value) => (
+                    <span class="db-tag db-tag--muted">
+                      {facetValueLabel("standard", value)}
+                    </span>
+                  ))}
+                  {card.facets.flag.includes("made-for-esphome") && (
+                    <span class="db-tag db-tag--accent">Made for ESPHome</span>
+                  )}
+                </span>
+              </span>
+            </a>
+          </li>
+        ))}
+      </ul>
+
+      <p class="db-empty" data-db-empty hidden>
+        {emptyMessage} Try removing a filter or searching for something broader.
+      </p>
+
+      {devices.length === 0 && <p class="db-empty">{emptyMessage}</p>}
+    </div>
+  </div>
+</div>
+
+<script>
+  type Card = {
+    element: HTMLLIElement;
+    id: string;
+    facets: string;
+    title: string;
+    date: number;
+    score: number;
+  };
+
+  const SEARCH_TEXT_URL = "/device-search-text.json";
+
+  function setup(root: HTMLElement): void {
+    const cardList = root.querySelector<HTMLUListElement>("[data-db-cards]");
+    const searchInput = root.querySelector<HTMLInputElement>("[data-db-search]");
+    const countLabel = root.querySelector<HTMLElement>("[data-db-count]");
+    const emptyMessage = root.querySelector<HTMLElement>("[data-db-empty]");
+    const activeBar = root.querySelector<HTMLElement>("[data-db-active]");
+    const resetButton = root.querySelector<HTMLButtonElement>("[data-db-reset]");
+    const sortSelect = root.querySelector<HTMLSelectElement>("[data-db-sort]");
+    const relevanceOption = root.querySelector<HTMLOptionElement>("[data-db-relevance]");
+    const clearSearch = root.querySelector<HTMLButtonElement>("[data-db-clear-search]");
+    const facetsPanel = root.querySelector<HTMLElement>("[data-db-facets]");
+    const filterToggle = root.querySelector<HTMLButtonElement>("[data-db-filter-toggle]");
+    if (!cardList || !searchInput || !countLabel) return;
+
+    const cards: Card[] = [...cardList.querySelectorAll<HTMLLIElement>(".db-card")].map(
+      (element) => ({
+        element,
+        id: element.dataset.dbDevice ?? "",
+        facets: element.dataset.facets ?? "",
+        title: element.dataset.title ?? "",
+        date: element.dataset.date ? Date.parse(element.dataset.date) : NaN,
+        score: 0,
+      })
+    );
+
+    const checkboxes = [
+      ...root.querySelectorAll<HTMLInputElement>("[data-db-checkbox]"),
+    ];
+
+    /** id -> token bag; empty until the full-text payload arrives. */
+    let searchText: Record<string, string> = {};
+    let searchTextState: "idle" | "loading" | "ready" = "idle";
+
+    async function loadSearchText(): Promise<void> {
+      if (searchTextState !== "idle") return;
+      searchTextState = "loading";
+      try {
+        const response = await fetch(SEARCH_TEXT_URL);
+        if (!response.ok) throw new Error(String(response.status));
+        searchText = await response.json();
+        searchTextState = "ready";
+        if (searchInput!.value.trim()) apply();
+      } catch {
+        // Titles and facets still work; full-text just stays unavailable.
+        searchTextState = "idle";
+      }
+    }
+
+    function selectedFilters(): Map<string, string[]> {
+      const selected = new Map<string, string[]>();
+      for (const checkbox of checkboxes) {
+        if (!checkbox.checked) continue;
+        const facet = checkbox.dataset.facet ?? "";
+        const values = selected.get(facet) ?? [];
+        values.push(checkbox.value);
+        selected.set(facet, values);
+      }
+      return selected;
+    }
+
+    function matchesFilters(card: Card, filters: Map<string, string[]>): boolean {
+      // Within a facet the values are alternatives (OR); across facets every
+      // group has to match (AND) — the behaviour people expect from facets.
+      for (const [facet, values] of filters) {
+        if (!values.some((value) => card.facets.includes(` ${facet}:${value} `))) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    /**
+     * Score a card against the query. Every term has to hit something (AND),
+     * and where it hits decides the ranking: title beats facet value beats
+     * body text, and a prefix beats a mid-word substring.
+     */
+    function scoreCard(card: Card, terms: string[]): number {
+      let total = 0;
+      const body = searchText[card.id] ?? "";
+      for (const term of terms) {
+        let best = 0;
+        if (card.title === term) best = 120;
+        else if (card.title.startsWith(term)) best = 90;
+        else if (card.title.includes(` ${term}`)) best = 70;
+        else if (card.title.includes(term)) best = 45;
+        else if (card.facets.includes(`:${term} `)) best = 30;
+        else if (card.facets.includes(term)) best = 20;
+        else if (body.includes(` ${term} `)) best = 12;
+        else if (body.startsWith(`${term} `)) best = 12;
+        else if (body.includes(term)) best = 6;
+        if (best === 0) return 0;
+        total += best;
+      }
+      return total;
+    }
+
+    function updateFacetCounts(filters: Map<string, string[]>, query: string[]): void {
+      for (const group of root.querySelectorAll<HTMLElement>("[data-db-facet]")) {
+        const facet = group.dataset.dbFacet ?? "";
+        // Counts for a facet ignore that facet's own selections, so the
+        // remaining options still show what picking them would give you.
+        const others = new Map(filters);
+        others.delete(facet);
+
+        const tally = new Map<string, number>();
+        for (const card of cards) {
+          if (!matchesFilters(card, others)) continue;
+          if (query.length > 0 && scoreCard(card, query) === 0) continue;
+          const pattern = ` ${facet}:`;
+          let index = card.facets.indexOf(pattern);
+          while (index !== -1) {
+            const start = index + pattern.length;
+            const end = card.facets.indexOf(" ", start);
+            const value = card.facets.slice(start, end);
+            tally.set(value, (tally.get(value) ?? 0) + 1);
+            index = card.facets.indexOf(pattern, end);
+          }
+        }
+
+        let selectedHere = 0;
+        for (const item of group.querySelectorAll<HTMLElement>(".db-facetValue")) {
+          const value = item.dataset.dbValue ?? "";
+          const count = tally.get(value) ?? 0;
+          const checkbox = item.querySelector<HTMLInputElement>("[data-db-checkbox]");
+          const countLabel = item.querySelector<HTMLElement>("[data-db-value-count]");
+          if (countLabel) countLabel.textContent = String(count);
+          if (checkbox?.checked) selectedHere++;
+          // A zero-count option stays visible while checked so it can be
+          // unchecked again.
+          item.classList.toggle("is-empty", count === 0 && !checkbox?.checked);
+        }
+
+        const badge = group.querySelector<HTMLElement>("[data-db-facet-badge]");
+        if (badge) {
+          badge.textContent = selectedHere > 0 ? String(selectedHere) : "";
+          badge.hidden = selectedHere === 0;
+        }
+        if (selectedHere > 0 && group instanceof HTMLDetailsElement) group.open = true;
+      }
+    }
+
+    function renderActiveFilters(filters: Map<string, string[]>, query: string): void {
+      if (!activeBar) return;
+      activeBar.textContent = "";
+      const chips: HTMLElement[] = [];
+
+      if (query) {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "db-chip";
+        chip.textContent = `“${query}”`;
+        chip.addEventListener("click", () => {
+          searchInput!.value = "";
+          apply();
+        });
+        chips.push(chip);
+      }
+
+      for (const checkbox of checkboxes) {
+        if (!checkbox.checked) continue;
+        const name =
+          checkbox.parentElement?.querySelector<HTMLElement>(".db-facetName")
+            ?.textContent ?? checkbox.value;
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "db-chip";
+        chip.textContent = name;
+        chip.addEventListener("click", () => {
+          checkbox.checked = false;
+          apply();
+        });
+        chips.push(chip);
+      }
+
+      for (const chip of chips) activeBar.append(chip);
+      activeBar.hidden = chips.length === 0;
+      if (resetButton) resetButton.hidden = chips.length === 0;
+    }
+
+    function syncUrl(filters: Map<string, string[]>, query: string): void {
+      const params = new URLSearchParams();
+      if (query) params.set("q", query);
+      for (const [facet, values] of filters) params.set(facet, values.join(","));
+      if (sortSelect && sortSelect.value !== "title" && sortSelect.value !== "relevance") {
+        params.set("sort", sortSelect.value);
+      }
+      if (cardList!.dataset.view === "list") params.set("view", "list");
+      const search = params.toString();
+      history.replaceState(null, "", search ? `?${search}` : location.pathname);
+    }
+
+    function apply(): void {
+      const query = searchInput!.value.trim().toLowerCase();
+      const terms = query.split(/\s+/).filter(Boolean);
+      const filters = selectedFilters();
+
+      if (terms.length > 0 && searchTextState === "idle") void loadSearchText();
+
+      let visible = 0;
+      for (const card of cards) {
+        const passesFilters = matchesFilters(card, filters);
+        card.score = passesFilters && terms.length > 0 ? scoreCard(card, terms) : 0;
+        const show = passesFilters && (terms.length === 0 || card.score > 0);
+        card.element.hidden = !show;
+        if (show) visible++;
+      }
+
+      // Relevance only makes sense with a query; it appears then and the sort
+      // falls back to title once the query is cleared.
+      if (relevanceOption && sortSelect) {
+        relevanceOption.hidden = terms.length === 0;
+        if (terms.length === 0 && sortSelect.value === "relevance") {
+          sortSelect.value = "title";
+        } else if (terms.length > 0 && !sortSelect.dataset.userChosen) {
+          sortSelect.value = "relevance";
+        }
+      }
+
+      sortCards(sortSelect?.value ?? "title");
+      updateFacetCounts(filters, terms);
+      renderActiveFilters(filters, query);
+
+      countLabel!.innerHTML = `<strong>${visible}</strong> of ${cards.length} devices`;
+      if (emptyMessage) emptyMessage.hidden = visible !== 0;
+      if (clearSearch) clearSearch.hidden = query.length === 0;
+      syncUrl(filters, query);
+    }
+
+    function sortCards(mode: string): void {
+      const ordered = cards.slice();
+      if (mode === "relevance") {
+        ordered.sort(
+          (a, b) => b.score - a.score || a.title.localeCompare(b.title)
+        );
+      } else if (mode === "date") {
+        ordered.sort((a, b) => {
+          const aValid = !Number.isNaN(a.date);
+          const bValid = !Number.isNaN(b.date);
+          if (!aValid && !bValid) return a.title.localeCompare(b.title);
+          if (!aValid) return 1;
+          if (!bValid) return -1;
+          return b.date - a.date;
+        });
+      } else {
+        ordered.sort((a, b) => a.title.localeCompare(b.title));
+      }
+      const fragment = document.createDocumentFragment();
+      for (const card of ordered) fragment.append(card.element);
+      cardList!.append(fragment);
+    }
+
+    function readUrl(): void {
+      const params = new URLSearchParams(location.search);
+      const query = params.get("q");
+      if (query) searchInput!.value = query;
+      for (const checkbox of checkboxes) {
+        const values = params.get(checkbox.dataset.facet ?? "");
+        if (!values) continue;
+        if (values.split(",").includes(checkbox.value)) checkbox.checked = true;
+      }
+      const sort = params.get("sort");
+      if (sort && sortSelect) {
+        sortSelect.value = sort;
+        sortSelect.dataset.userChosen = "true";
+      }
+      if (params.get("view") === "list") setView("list");
+    }
+
+    function setView(view: string): void {
+      cardList!.dataset.view = view;
+      for (const button of root.querySelectorAll<HTMLButtonElement>("[data-db-view]")) {
+        button.classList.toggle("is-active", button.dataset.dbView === view);
+      }
+    }
+
+    let searchTimer: number | undefined;
+    searchInput.addEventListener("input", () => {
+      window.clearTimeout(searchTimer);
+      searchTimer = window.setTimeout(apply, 120);
+    });
+    searchInput.addEventListener("focus", () => void loadSearchText(), { once: true });
+
+    clearSearch?.addEventListener("click", () => {
+      searchInput.value = "";
+      searchInput.focus();
+      apply();
+    });
+
+    for (const checkbox of checkboxes) {
+      checkbox.addEventListener("change", apply);
+    }
+
+    sortSelect?.addEventListener("change", () => {
+      sortSelect.dataset.userChosen = "true";
+      apply();
+    });
+
+    for (const button of root.querySelectorAll<HTMLButtonElement>("[data-db-view]")) {
+      button.addEventListener("click", () => {
+        setView(button.dataset.dbView ?? "grid");
+        apply();
+      });
+    }
+
+    resetButton?.addEventListener("click", () => {
+      for (const checkbox of checkboxes) checkbox.checked = false;
+      searchInput.value = "";
+      apply();
+    });
+
+    filterToggle?.addEventListener("click", () => {
+      const open = facetsPanel?.classList.toggle("is-open") ?? false;
+      filterToggle.setAttribute("aria-expanded", String(open));
+    });
+
+    // "Show all" inside a long facet list.
+    for (const button of root.querySelectorAll<HTMLButtonElement>("[data-db-show-more]")) {
+      button.addEventListener("click", () => {
+        const group = button.closest("[data-db-facet]");
+        for (const item of group?.querySelectorAll<HTMLElement>("[data-db-extra]") ?? []) {
+          item.hidden = false;
+        }
+        button.hidden = true;
+      });
+    }
+
+    // Type-to-filter within a long facet list.
+    for (const input of root.querySelectorAll<HTMLInputElement>("[data-db-facet-search]")) {
+      input.addEventListener("input", () => {
+        const needle = input.value.trim().toLowerCase();
+        const group = input.closest("[data-db-facet]");
+        for (const item of group?.querySelectorAll<HTMLElement>(".db-facetValue") ?? []) {
+          const name =
+            item.querySelector<HTMLElement>(".db-facetName")?.textContent ?? "";
+          const checkbox = item.querySelector<HTMLInputElement>("[data-db-checkbox]");
+          const matches = name.toLowerCase().includes(needle);
+          item.hidden = needle ? !matches : Boolean(item.dataset.dbExtra) && !checkbox?.checked;
+        }
+      });
+    }
+
+    readUrl();
+    apply();
+    root.classList.add("is-interactive");
+  }
+
+  for (const root of document.querySelectorAll<HTMLElement>("[data-device-browser]")) {
+    setup(root);
+  }
+</script>

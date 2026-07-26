@@ -1,0 +1,15 @@
+---
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import DeviceBrowser from "@components/DeviceBrowser.astro";
+---
+
+<StarlightPage
+  frontmatter={{
+    title: "Find a Device",
+    description:
+      "Search and filter every documented ESPHome device by type, chip, capability, electrical standard and flashing difficulty.",
+    tableOfContents: false,
+  }}
+>
+  <DeviceBrowser />
+</StarlightPage>

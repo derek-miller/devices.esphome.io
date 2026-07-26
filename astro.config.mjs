@@ -66,6 +66,7 @@ export default defineConfig({
       customCss: [
         "./src/styles/custom.css",
         "./src/styles/device-list.css",
+        "./src/styles/device-browser.css",
         "./src/styles/remote-yaml.css",
       ],
       head: [
@@ -87,6 +88,10 @@ export default defineConfig({
         },
       ],
       sidebar: [
+        {
+          label: "Find a Device",
+          link: "/browse",
+        },
         {
           label: "Made for ESPHome",
           link: "/made-for-esphome",
