@@ -44,6 +44,8 @@ export type DeviceIndex = {
   cards: DeviceCard[];
   /** Facet id -> value -> number of devices, over the whole catalog. */
   counts: Record<string, Record<string, number>>;
+  /** Device id -> search tokens, served separately by device-search-text.json. */
+  text: DeviceSearchText;
 };
 
 const IMAGE_MARKDOWN = /!\[[^\]]*\]\(\s*<?([^)>\s]+)>?(?:\s+["'][^"']*["'])?\s*\)/g;
@@ -109,13 +111,57 @@ function heroImage(slug: string, body: string): ImageMetadata | null {
   return inFolder.length > 0 ? DEVICE_IMAGES[inFolder[0]].default : null;
 }
 
-/** Fenced yaml on the page, concatenated. */
-function yamlBlocks(body: string): string {
+/**
+ * Example configs stored alongside a device page, as raw text.
+ *
+ * Newly added devices are required to keep their yaml in its own file and
+ * pull it in with a `file=` fence (see .github/PULL_REQUEST_TEMPLATE.md), so
+ * reading only the inline fences would make the facets go quiet as the
+ * catalog migrates to that convention.
+ */
+const DEVICE_CONFIGS = import.meta.glob<string>(
+  "../docs/devices/**/*.{yaml,yml}",
+  { eager: true, query: "?raw", import: "default" }
+);
+
+// Mirrors the attribute forms handled by src/integrations/remark-yaml-include.ts.
+const FILE_ATTR = /(?:^|\s)file=(?:"([^"]+)"|'([^']+)'|([^\s"']+))/;
+const URL_ATTR = /(?:^|\s)url=(?:"([^"]+)"|'([^']+)'|([^\s"']+))/;
+
+type DeviceConfig = {
+  /** Inline yaml plus the contents of any `file=` includes. */
+  yamlText: string;
+  /** The page points at a config hosted elsewhere (a `url=` fence). */
+  external: boolean;
+};
+
+function attributeValue(pattern: RegExp, meta: string): string | null {
+  const match = pattern.exec(meta);
+  return match ? (match[1] ?? match[2] ?? match[3] ?? null) : null;
+}
+
+function deviceConfig(folder: string, body: string): DeviceConfig {
   const blocks: string[] = [];
-  const pattern = /```ya?ml[^\n]*\n([\s\S]*?)```/gi;
+  let external = false;
+
+  const fence = /```ya?ml([^\n]*)\n([\s\S]*?)```/gi;
   let match: RegExpExecArray | null;
-  while ((match = pattern.exec(body)) !== null) blocks.push(match[1]);
-  return blocks.join("\n");
+  while ((match = fence.exec(body)) !== null) {
+    const [, meta, content] = match;
+    const file = attributeValue(FILE_ATTR, meta);
+    if (file) {
+      const included = DEVICE_CONFIGS[globKey(folder, file)];
+      if (included) blocks.push(included);
+      continue;
+    }
+    if (attributeValue(URL_ATTR, meta)) {
+      external = true;
+      continue;
+    }
+    blocks.push(content);
+  }
+
+  return { yamlText: blocks.join("\n"), external };
 }
 
 function isDeviceEntry(entry: CollectionEntry<"docs">): boolean {
@@ -141,13 +187,17 @@ async function buildDeviceIndex(): Promise<DeviceIndex> {
   const entries = (await getCollection("docs")).filter(isDeviceEntry);
   const brands = deriveBrands(entries.map((entry) => entry.data.title));
 
+  const text: DeviceSearchText = {};
+
   const cards = await Promise.all(
     entries.map(async (entry): Promise<DeviceCard> => {
       const id = entry.id.replace(/^devices\//, "");
       const data = entry.data as unknown as RawDeviceMetadata;
       const body = entry.body ?? "";
 
-      const image = heroImage(deviceFolder(entry.filePath, id), body);
+      const folder = deviceFolder(entry.filePath, id);
+      const config = deviceConfig(folder, body);
+      const image = heroImage(folder, body);
       const thumb = image
         ? await getImage({
             src: image,
@@ -156,6 +206,10 @@ async function buildDeviceIndex(): Promise<DeviceIndex> {
             quality: 62,
           })
         : null;
+
+      // Included yaml is searchable too, so a chip named only in a `file=`
+      // config still turns up.
+      text[id] = searchTokens(data.title, `${body}\n${config.yamlText}`);
 
       return {
         id,
@@ -174,7 +228,8 @@ async function buildDeviceIndex(): Promise<DeviceIndex> {
         facets: buildFacetValues({
           data,
           brand: brands.get(data.title) ?? null,
-          yamlText: yamlBlocks(body),
+          yamlText: config.yamlText,
+          externalConfig: config.external,
           prose: stripCodeBlocks(body),
           hasImage: image !== null,
         }),
@@ -192,7 +247,7 @@ async function buildDeviceIndex(): Promise<DeviceIndex> {
     }
   }
 
-  return { cards, counts };
+  return { cards, counts, text };
 }
 
 // ---------------------------------------------------------------------------
@@ -231,14 +286,3 @@ export function searchTokens(title: string, body: string): string {
 }
 
 export type DeviceSearchText = Record<string, string>;
-
-/** id -> token bag, for the lazily fetched full-text payload. */
-export async function getDeviceSearchText(): Promise<DeviceSearchText> {
-  const entries = (await getCollection("docs")).filter(isDeviceEntry);
-  const text: DeviceSearchText = {};
-  for (const entry of entries) {
-    const id = entry.id.replace(/^devices\//, "");
-    text[id] = searchTokens(entry.data.title, entry.body ?? "");
-  }
-  return text;
-}

@@ -10,8 +10,8 @@ import type { APIRoute } from "astro";
 import { getDeviceIndex } from "../utils/deviceIndex";
 
 export const GET: APIRoute = async () => {
-  const index = await getDeviceIndex();
-  return new Response(JSON.stringify(index), {
+  const { cards, counts } = await getDeviceIndex();
+  return new Response(JSON.stringify({ cards, counts }), {
     headers: { "content-type": "application/json; charset=utf-8" },
   });
 };

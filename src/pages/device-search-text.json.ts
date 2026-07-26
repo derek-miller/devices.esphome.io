@@ -6,10 +6,10 @@
  * search box, and searches titles and facets in the meantime.
  */
 import type { APIRoute } from "astro";
-import { getDeviceSearchText } from "../utils/deviceIndex";
+import { getDeviceIndex } from "../utils/deviceIndex";
 
 export const GET: APIRoute = async () => {
-  const text = await getDeviceSearchText();
+  const { text } = await getDeviceIndex();
   return new Response(JSON.stringify(text), {
     headers: { "content-type": "application/json; charset=utf-8" },
   });

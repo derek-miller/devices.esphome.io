@@ -315,11 +315,6 @@ export const CAPABILITY_BUCKETS: readonly {
     ],
   },
   {
-    id: "relay",
-    label: "Relay / switching",
-    components: ["relay", "switch"],
-  },
-  {
     id: "light",
     label: "Light / dimming",
     components: [
@@ -506,6 +501,47 @@ export function extractCapabilities(components: readonly string[]): string[] {
   );
 }
 
+/**
+ * Which ESP32 someone actually has to buy — the single most useful thing to
+ * narrow by once you know you want an ESP32, and not in frontmatter.
+ *
+ * Read in order of reliability: the explicit `variant:`, then the ESPHome
+ * board id (esp32-c3-devkitm-1 …), then the chip named in the page's own
+ * text. An ESP32 whose series cannot be established gets no value rather
+ * than a guessed one.
+ */
+const ESP32_SERIES = ["s3", "c3", "c6", "s2", "p4", "h2", "c2", "c5"] as const;
+
+export function extractEsp32Series(
+  yamlText: string,
+  prose: string,
+  isEsp32: boolean
+): string[] {
+  if (!isEsp32) return [];
+
+  const variant = /^\s{2,}variant\s*:\s*["']?esp32-?([a-z]\d)/im.exec(yamlText);
+  if (variant) return [`esp32${variant[1].toLowerCase()}`];
+
+  const board = /^\s{2,}board\s*:\s*["']?([\w-]+)/im.exec(yamlText);
+  if (board) {
+    const id = board[1].toLowerCase();
+    const series = ESP32_SERIES.find((suffix) => id.includes(`-${suffix}-`));
+    if (series) return [`esp32${series}`];
+    // A board id with no series in it is a classic ESP32 board (esp32dev,
+    // nodemcu-32s, esp-wrover-kit).
+    if (/^esp32|wrover|wroom|nodemcu-32/.test(id)) return ["esp32"];
+  }
+
+  const named = /\besp32[\s-]?([a-z]\d)\b/i.exec(prose);
+  if (named && ESP32_SERIES.includes(named[1].toLowerCase() as never)) {
+    return [`esp32${named[1].toLowerCase()}`];
+  }
+
+  // `variant:` is optional in ESPHome and defaults to the original ESP32, so
+  // a config that sets neither variant nor a recognizable board is classic.
+  return /^esp32:/m.test(yamlText) ? ["esp32"] : [];
+}
+
 /** ESPHome framework, from `type: esp-idf` / `type: arduino` under esp32/esp8266. */
 export function extractFramework(yamlText: string): string[] {
   const found = new Set<string>();
@@ -615,9 +651,22 @@ const FRAMEWORK_LABELS: Record<string, string> = {
   "esp-idf": "ESP-IDF",
 };
 
+const ESP32_SERIES_LABELS: Record<string, string> = {
+  esp32: "ESP32 (original)",
+  esp32c2: "ESP32-C2",
+  esp32c3: "ESP32-C3",
+  esp32c5: "ESP32-C5",
+  esp32c6: "ESP32-C6",
+  esp32h2: "ESP32-H2",
+  esp32p4: "ESP32-P4",
+  esp32s2: "ESP32-S2",
+  esp32s3: "ESP32-S3",
+};
+
 const FLAG_LABELS: Record<string, string> = {
   "made-for-esphome": "Made for ESPHome",
   "has-config": "Has YAML config",
+  "config-external": "Config hosted upstream",
   "has-image": "Has a photo",
   "open-hardware": "Open hardware / DIY",
 };
@@ -641,6 +690,8 @@ export function facetValueLabel(facet: string, value: string): string {
       return CAPABILITY_LABELS.get(value) ?? value;
     case "install":
       return INSTALL_LABELS.get(value) ?? value;
+    case "esp32series":
+      return ESP32_SERIES_LABELS[value] ?? value;
     case "framework":
       return FRAMEWORK_LABELS[value] ?? value;
     case "flag":
@@ -665,6 +716,7 @@ export const FACET_DEFINITIONS: readonly {
   { id: "type", label: "Device type", linkBase: "type" },
   { id: "capability", label: "Capabilities" },
   { id: "board", label: "Microcontroller", linkBase: "board" },
+  { id: "esp32series", label: "ESP32 series" },
   { id: "standard", label: "Electrical standard", linkBase: "standards" },
   { id: "difficulty", label: "Flashing difficulty" },
   { id: "install", label: "Install method", collapsed: true },
@@ -686,27 +738,39 @@ export function buildFacetValues(options: {
   data: RawDeviceMetadata;
   brand: string | null;
   yamlText: string;
+  /** Page links out to a config hosted in the maker's own repo. */
+  externalConfig: boolean;
   prose: string;
   hasImage: boolean;
 }): DeviceFacetValues {
-  const { data, brand, yamlText, prose, hasImage } = options;
+  const { data, brand, yamlText, externalConfig, prose, hasImage } = options;
 
   const type = normalizeType(data.type);
   const difficulty = normalizeDifficulty(readField(data, "difficulty"));
   const components = extractComponents(yamlText);
+  const boards = normalizeBoards(readField(data, "board"));
   const madeForEsphome = isMadeForEsphome(readField(data, "made-for-esphome"));
   const hasConfig = yamlText.trim().length > 0;
 
   const flags: string[] = [];
   if (madeForEsphome) flags.push("made-for-esphome");
   if (hasConfig) flags.push("has-config");
+  // Most made-for-esphome devices keep their config in the maker's repo and
+  // embed it with a url= fence. Without this they would read as having no
+  // config at all, and none of the yaml-derived capabilities can see them.
+  if (externalConfig) flags.push("config-external");
   if (hasImage) flags.push("has-image");
   if (data["project-url"]) flags.push("open-hardware");
 
   return {
     type: type ? [type] : [],
     brand: brand ? [brand] : [],
-    board: normalizeBoards(readField(data, "board")),
+    board: boards,
+    esp32series: extractEsp32Series(
+      yamlText,
+      `${data.title}\n${prose}`,
+      boards.includes("esp32")
+    ),
     standard: normalizeStandards(data.standard),
     capability: extractCapabilities(components),
     component: components,
