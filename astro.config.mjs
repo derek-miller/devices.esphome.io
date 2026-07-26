@@ -9,8 +9,15 @@ import remarkYamlInclude from "./src/integrations/remark-yaml-include";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Production (Netlify) is served from the domain root. Preview deploys on a
+// GitHub Pages project site are served from a sub-path and set these; see
+// .github/workflows/deploy-pages.yml.
+const site = process.env.SITE_URL || "https://devices.esphome.io";
+const base = process.env.SITE_BASE || undefined;
+
 export default defineConfig({
-  site: "https://devices.esphome.io",
+  site,
+  base,
   vite: {
     resolve: {
       alias: {
