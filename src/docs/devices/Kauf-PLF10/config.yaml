@@ -1,0 +1,71 @@
+# Hardware definition for the KAUF PLF10. The firmware the plug ships with
+# adds calibration controls, LED automations and Kauf's own update channel;
+# it is linked from the device page. This file is just the hardware.
+esphome:
+  name: kauf-plf10
+  friendly_name: Kauf PLF10
+
+esp8266:
+  board: esp01_1m
+  restore_from_flash: true
+
+binary_sensor:
+  - platform: gpio
+    name: Button
+    pin:
+      number: GPIO13
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+
+switch:
+  - platform: gpio
+    name: Relay
+    id: relay
+    pin: GPIO4
+    restore_mode: RESTORE_DEFAULT_ON
+
+output:
+  # Both LEDs are active low, and on PWM so they can be dimmed.
+  - platform: esp8266_pwm
+    id: blue_led_output
+    pin: GPIO2
+    frequency: 200 Hz
+    inverted: true
+
+  - platform: esp8266_pwm
+    id: red_led_output
+    pin: GPIO0
+    frequency: 200 Hz
+    inverted: true
+
+light:
+  - platform: monochromatic
+    name: Blue LED
+    output: blue_led_output
+
+  - platform: monochromatic
+    name: Red LED
+    output: red_led_output
+
+sensor:
+  # current_resistor and voltage_divider are the values Kauf ships for this
+  # board. Each unit is calibrated individually at the factory, so expect to
+  # trim these against a known load.
+  - platform: hlw8012
+    model: HLW8012
+    sel_pin:
+      number: GPIO12
+      inverted: true
+    cf_pin: GPIO5
+    cf1_pin: GPIO14
+    current_resistor: 0.001
+    voltage_divider: 2401
+    update_interval: 10s
+    power:
+      name: Power
+    current:
+      name: Current
+    voltage:
+      name: Voltage
