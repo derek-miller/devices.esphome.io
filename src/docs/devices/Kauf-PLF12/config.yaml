@@ -1,0 +1,76 @@
+# Hardware definition for the KAUF PLF12. The firmware the plug ships with
+# adds calibration controls, LED automations and Kauf's own update channel;
+# it is linked from the device page. This file is just the hardware.
+esphome:
+  name: kauf-plf12
+  friendly_name: Kauf PLF12
+
+esp8266:
+  board: esp01_1m
+  restore_from_flash: true
+
+# The button and the red LED sit on the UART pins, so the serial logger has
+# to be switched off — leaving it on drives the LED and misreads the button.
+logger:
+  baud_rate: 0
+
+binary_sensor:
+  - platform: gpio
+    name: Button
+    pin:
+      number: GPIO3
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+
+switch:
+  - platform: gpio
+    name: Relay
+    id: relay
+    pin: GPIO13
+    restore_mode: RESTORE_DEFAULT_ON
+
+output:
+  # Both LEDs are active low, and on PWM so they can be dimmed.
+  - platform: esp8266_pwm
+    id: blue_led_output
+    pin: GPIO12
+    frequency: 200 Hz
+    inverted: true
+
+  - platform: esp8266_pwm
+    id: red_led_output
+    pin: GPIO1
+    frequency: 200 Hz
+    inverted: true
+
+light:
+  - platform: monochromatic
+    name: Blue LED
+    output: blue_led_output
+
+  - platform: monochromatic
+    name: Red LED
+    output: red_led_output
+
+sensor:
+  # The PLF12 uses a BL0937 rather than the PLF10's HLW8012, with its own
+  # voltage divider. Each unit is calibrated individually at the factory, so
+  # expect to trim these against a known load.
+  - platform: hlw8012
+    model: BL0937
+    sel_pin:
+      number: GPIO14
+      inverted: true
+    cf_pin: GPIO4
+    cf1_pin: GPIO5
+    current_resistor: 0.001
+    voltage_divider: 2001
+    update_interval: 10s
+    power:
+      name: Power
+    current:
+      name: Current
+    voltage:
+      name: Voltage
