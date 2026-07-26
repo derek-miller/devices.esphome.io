@@ -17,6 +17,9 @@ on:
   workflow_dispatch:
   push:
     branches:
+      # The github-pages environment only accepts deployments from the
+      # default branch, so previews are published from this fork's main.
+      - main
       - claude/device-search-facets-images-argnam
 
 concurrency:
