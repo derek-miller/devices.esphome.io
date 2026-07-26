@@ -177,6 +177,37 @@ function isBrandlessToken(token: string): boolean {
 }
 
 /**
+ * Words a brand name never absorbs from the title that follows it. Without
+ * this, two devices from the same maker that happen to share a long title
+ * prefix invent a brand out of the product description — "KAUF Power
+ * Monitoring Smart Plug (PLF10)" and "…(PLF12)" agreeing on their first
+ * three words is not evidence that the brand is "KAUF Power Monitoring".
+ *
+ * Real multi-word brands continue with a proper noun — Mirabella *Genio*,
+ * Martin *Jerry*, Gelidus *Research*, NEO *Coolcam* — so company suffixes
+ * are deliberately absent from this list.
+ */
+const NOT_A_BRAND_CONTINUATION = new Set([
+  "power", "monitoring", "energy", "meter", "monitor", "plug", "socket",
+  "outlet", "switch", "relay", "bulb", "bulbs", "lamp", "light", "lights",
+  "led", "leds", "strip", "dimmer", "sensor", "controller", "module",
+  "board", "series", "presence", "motion", "esp", "esp32", "esp8266",
+  "wifi", "wi-fi", "smart", "mini", "micro", "pro", "max", "plus", "gang",
+  "channel", "touch", "wall", "ceiling", "garage", "door", "water",
+  "temperature", "humidity", "downlight", "globe", "fan", "camera", "siren",
+  "valve", "thermostat", "display", "panel", "hub", "remote", "adapter",
+  "adaptor", "charger", "cable", "kit", "tag", "usb", "rgb", "rgbw", "cct",
+]);
+
+/** Whether a brand may grow to include this next token. */
+function isBrandContinuation(token: string): boolean {
+  // Parentheticals are retailers or model codes: "Bauhn (ALDI) ASPU-1019".
+  if (token.length < 2 || token.startsWith("(")) return false;
+  if (isSpecToken(token)) return false;
+  return !NOT_A_BRAND_CONTINUATION.has(token.toLowerCase());
+}
+
+/**
  * Infer each title's brand from the whole corpus of titles.
  *
  * A single leading token is the brand for most devices ("Athom Smart Plug
@@ -243,6 +274,7 @@ export function deriveBrands(titles: readonly string[]): Map<string, string> {
         brandKey(tokens.slice(start, start + length).join(" "))
       );
       if (!group || group.titles < 2 || group.next.size !== 1) break;
+      if (!isBrandContinuation(tokens[start + length])) break;
       length++;
     }
     return tokens.slice(start, start + length).join(" ");
@@ -565,6 +597,12 @@ export const INSTALL_METHODS: readonly {
   id: string;
   label: string;
   patterns: readonly RegExp[];
+  /**
+   * Set on methods that describe effort the device demands. Pages routinely
+   * advertise the absence of that effort — "nothing to flash, solder or
+   * disassemble" — and a bare keyword match reads those backwards.
+   */
+  rejectIfNegated?: boolean;
 }[] = [
   {
     id: "preflashed",
@@ -572,7 +610,8 @@ export const INSTALL_METHODS: readonly {
     patterns: [
       /\bpre-?flashed with esphome\b/i,
       /\bcomes with esphome\b/i,
-      /\bships with esphome\b/i,
+      /\bships? (?:with|running) esphome\b/i,
+      /\bruns esphome out of the box\b/i,
       /\bpre-?installed esphome\b/i,
     ],
   },
@@ -616,22 +655,54 @@ export const INSTALL_METHODS: readonly {
       /\bprogramming header\b/i,
       /\besptool\b/i,
     ],
+    rejectIfNegated: true,
   },
   {
     id: "soldering",
     label: "Soldering required",
     patterns: [/\bsolder(?:ing|ed)?\b/i],
+    rejectIfNegated: true,
   },
 ];
 
-/** Strip fenced code blocks so prose matching does not read yaml comments. */
+/** Words that flip the meaning of a requirement mentioned just after them. */
+const NEGATION = /\b(?:no|not|non|never|without|nothing|avoid|don'?t|doesn'?t|didn'?t|isn'?t|aren'?t|unnecessary)\b/i;
+
+/** How far back to look for a negation — roughly a clause. */
+const NEGATION_WINDOW = 48;
+
+/** True when every occurrence of the pattern sits under a negation. */
+function isAlwaysNegated(prose: string, pattern: RegExp): boolean {
+  const global = new RegExp(pattern.source, `${pattern.flags.replace("g", "")}g`);
+  let match: RegExpExecArray | null;
+  let found = false;
+  while ((match = global.exec(prose)) !== null) {
+    found = true;
+    const before = prose.slice(Math.max(0, match.index - NEGATION_WINDOW), match.index);
+    if (!NEGATION.test(before)) return false;
+  }
+  return found;
+}
+
+/**
+ * Reduce a page to matchable prose: drop fenced code so yaml comments are not
+ * read as documentation, then collapse whitespace.
+ *
+ * Collapsing matters. Device pages are hard-wrapped at 120 columns, so a
+ * phrase like "it ships running ESPHome" routinely arrives with a newline in
+ * the middle of it and no multi-word pattern below would ever fire.
+ */
 export function stripCodeBlocks(markdown: string): string {
-  return markdown.replace(/```[\s\S]*?(?:```|$)/g, " ");
+  return markdown.replace(/```[\s\S]*?(?:```|$)/g, " ").replace(/\s+/g, " ");
 }
 
 export function extractInstallMethods(prose: string): string[] {
   return INSTALL_METHODS.filter((method) =>
-    method.patterns.some((pattern) => pattern.test(prose))
+    method.patterns.some(
+      (pattern) =>
+        pattern.test(prose) &&
+        !(method.rejectIfNegated && isAlwaysNegated(prose, pattern))
+    )
   ).map((method) => method.id);
 }
 
